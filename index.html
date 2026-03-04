@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dungeon Crawler (NP) - Web Version</title>
+    <style>
+        body { margin: 0; background: #14141e; display: flex; justify-content: center; align-items: center; height: 100vh; color: white; font-family: sans-serif; }
+        canvas { border: 4px solid #505064; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        #status { position: absolute; top: 20px; }
+    </style>
+</head>
+<body>
+    <div id="status">Loading Dungeon Crawler...</div>
+    <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="1"></canvas>
+
+    <!-- This is a placeholder for the Antigravity/Pyodide loader -->
+    <!-- Typically you would use a tool like pygbag to generate the full loader -->
+    <script type="text/javascript">
+        window.addEventListener("load", () => {
+            console.log("Dungeon Crawler ready for deployment.");
+            document.getElementById("status").innerText = "Game Ready (Web Build Required)";
+        });
+    </script>
+</body>
+</html>
