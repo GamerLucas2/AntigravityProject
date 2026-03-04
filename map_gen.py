@@ -43,6 +43,7 @@ class Room:
         if self.type == "boss": color = (100, 20, 20)
         elif self.type == "treasure": color = (200, 160, 40)
         elif self.type == "puzzle": color = (60, 120, 60)
+        elif self.type == "start": color = (50, 50, 80) # Darker blue for start
         
         wall.image.fill(color)
         wall.rect = wall.image.get_rect(topleft=(x, y))
@@ -92,9 +93,12 @@ class Dungeon:
         rooms_list = list(self.rooms.values())
         random.shuffle(rooms_list)
         
+        # Ensure Start room (0,0) is 'start' type
+        self.rooms[(0, 0)].type = "start"
+
         special_count = 0
         for r in rooms_list:
-            if r.grid_pos == (0, 0): continue # Start room common
+            if r.grid_pos == (0, 0): continue # Skip start room
             if r.grid_pos == (self.size-1, self.size-1):
                 r.type = "boss"
                 # Lock doors to boss

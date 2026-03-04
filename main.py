@@ -1,19 +1,21 @@
 import pygame
 import sys
+import asyncio
 from entities import Player, Enemy, Sword, Key, MasterKey, SilverSword, DefenseRing, Boss, Projectile
 from map_gen import Dungeon, SCREEN_WIDTH, SCREEN_HEIGHT, TILE_SIZE
 import random
 
-def main():
+async def main():
     # Pygame initialization
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    pygame.display.set_caption("Dungeon Crawler (NP) - Phase 1")
+    pygame.display.set_caption("Dungeon Crawler (NP) - Web Optimized")
     clock = pygame.time.Clock()
 
     # Game Objects
-    player = Player(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-    dungeon = Dungeon(size=3) # Smaller for testing
+    # Spawning player at the top center of the room
+    player = Player(SCREEN_WIDTH // 2, TILE_SIZE * 2)
+    dungeon = Dungeon(size=3) 
     
     # Sprite groups
     all_sprites = pygame.sprite.Group()
@@ -38,7 +40,7 @@ def main():
         
         # Remove old entities
         for s in list(all_group):
-            if isinstance(s, (Enemy, Key, MasterKey, SilverSword, DefenseRing, Projectile)): s.kill()
+            if isinstance(s, (Enemy, Key, MasterKey, SilverSword, DefenseRing, Projectile, Boss)): s.kill()
         
         # Spawn enemies
         if room.type == "common":
@@ -54,6 +56,13 @@ def main():
             enemies.add(b)
             all_group.add(b)
         
+        # Spawn initial weapon in Start Room
+        elif room.type == "start":
+            # Spawn sword slightly ahead of the player (who is at top)
+            w = SilverSword(SCREEN_WIDTH // 2, TILE_SIZE * 5)
+            items.add(w)
+            all_group.add(w)
+
         # Spawn items in special rooms
         if room.type == "puzzle":
             k = Key(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
@@ -92,7 +101,7 @@ def main():
                 player.has_silver_sword = False
                 player.damage = 2
                 player.defense = 0
-                player.rect.topleft = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+                player.rect.topleft = (SCREEN_WIDTH // 2, TILE_SIZE * 2)
                 dungeon = Dungeon(size=3)
                 setup_room(dungeon.get_current_room(), (enemies, items, projectiles), all_sprites)
                 game_state = STATE_PLAYING
@@ -180,7 +189,7 @@ def main():
 
         # 4. Drawing
         screen.fill((20, 20, 30))
-        current_room.draw(screen)
+        dungeon.get_current_room().draw(screen)
         all_sprites.draw(screen)
         draw_hud(screen, player, enemies)
 
@@ -190,6 +199,7 @@ def main():
             draw_overlay(screen, "YOU WIN! DUNGEON CLEARED", (50, 255, 50))
 
         pygame.display.flip()
+        await asyncio.sleep(0) # Let the browser breathe (required for Pyodide)
         clock.tick(60)
 
     pygame.quit()
@@ -252,4 +262,4 @@ def draw_hud(screen, player, enemies):
         screen.blit(dr_text, (10, 140))
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

@@ -62,15 +62,15 @@ class Enemy(Entity):
         # Apply movement with simple wall collision
         self.rect.x += self.velocity.x
         for wall in walls:
-            if self.rect.colliderect(wall):
-                if self.velocity.x > 0: self.rect.right = wall.left
-                if self.velocity.x < 0: self.rect.left = wall.right
+            if self.rect.colliderect(wall.rect):
+                if self.velocity.x > 0: self.rect.right = wall.rect.left
+                if self.velocity.x < 0: self.rect.left = wall.rect.right
 
         self.rect.y += self.velocity.y
         for wall in walls:
-            if self.rect.colliderect(wall):
-                if self.velocity.y > 0: self.rect.bottom = wall.top
-                if self.velocity.y < 0: self.rect.top = wall.bottom
+            if self.rect.colliderect(wall.rect):
+                if self.velocity.y > 0: self.rect.bottom = wall.rect.top
+                if self.velocity.y < 0: self.rect.top = wall.rect.bottom
 
 class Projectile(pygame.sprite.Sprite):
     def __init__(self, x, y, dx, dy, color=(255, 255, 255)):
@@ -188,13 +188,13 @@ class Player(Entity):
         # Handle X movement and collisions
         self.rect.x += self.velocity.x
         for wall in walls:
-            if self.rect.colliderect(wall):
-                if self.velocity.x > 0: self.rect.right = wall.left
-                if self.velocity.x < 0: self.rect.left = wall.right
+            if self.rect.colliderect(wall.rect):
+                if self.velocity.x > 0: self.rect.right = wall.rect.left
+                if self.velocity.x < 0: self.rect.left = wall.rect.right
 
         # Handle Y movement and collisions
         self.rect.y += self.velocity.y
         for wall in walls:
-            if self.rect.colliderect(wall):
-                if self.velocity.y > 0: self.rect.bottom = wall.top
-                if self.velocity.y < 0: self.rect.top = wall.bottom
+            if self.rect.colliderect(wall.rect):
+                if self.velocity.y > 0: self.rect.bottom = wall.rect.top
+                if self.velocity.y < 0: self.rect.top = wall.rect.bottom
