@@ -1,9 +1,16 @@
 import pygame
 import sys
 import asyncio
-from entities import Player, Enemy, Sword, Key, MasterKey, SilverSword, DefenseRing, Boss, Projectile
-from map_gen import Dungeon, SCREEN_WIDTH, SCREEN_HEIGHT, TILE_SIZE
+import os
 import random
+
+# Ensure the current directory is in the Python search path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
+from entities import Player, Enemy, Sword, Key, MasterKey, SilverSword, DefenseRing, Boss, Projectile, VictoryItem
+from map_gen import Dungeon, SCREEN_WIDTH, SCREEN_HEIGHT, TILE_SIZE
 
 async def main():
     # Pygame initialization
@@ -32,6 +39,13 @@ async def main():
     STATE_WIN = 2
     game_state = STATE_PLAYING
 
+    # Cache fonts for performance
+    font_hud = pygame.font.SysFont("Arial", 20)
+    font_boss = pygame.font.SysFont("Arial", 16)
+    font_small = pygame.font.SysFont("Arial", 16, bold=True)
+    font_overlay = pygame.font.SysFont("Arial", 40, bold=True)
+    font_sub_overlay = pygame.font.SysFont("Arial", 20)
+
     def setup_room(room, groups, all_group):
         enemies, items, projectiles = groups
         enemies.empty()
@@ -40,42 +54,75 @@ async def main():
         
         # Remove old entities
         for s in list(all_group):
-            if isinstance(s, (Enemy, Key, MasterKey, SilverSword, DefenseRing, Projectile, Boss)): s.kill()
+            if isinstance(s, (Enemy, Key, MasterKey, SilverSword, DefenseRing, Projectile, Boss, VictoryItem)): s.kill()
         
-        # Spawn enemies
-        if room.type == "common":
+        room.arena_activated = False
+        
+        # Ensure room state attributes exist
+        if not hasattr(room, 'items_collected'): room.items_collected = False
+        if not hasattr(room, 'enemies_cleared'): room.enemies_cleared = False
+
+        def spawn_minions():
             for _ in range(random.randint(2, 4)):
                 e = Enemy(random.randint(TILE_SIZE * 2, SCREEN_WIDTH - TILE_SIZE * 3), 
                           random.randint(TILE_SIZE * 2, SCREEN_HEIGHT - TILE_SIZE * 3))
                 enemies.add(e)
                 all_group.add(e)
-        
-        # Spawn Boss
-        elif room.type == "boss":
-            b = Boss(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-            enemies.add(b)
-            all_group.add(b)
-        
-        # Spawn initial weapon in Start Room
-        elif room.type == "start":
-            # Spawn sword slightly ahead of the player (who is at top)
-            w = SilverSword(SCREEN_WIDTH // 2, TILE_SIZE * 5)
-            items.add(w)
-            all_group.add(w)
 
-        # Spawn items in special rooms
-        if room.type == "puzzle":
-            k = Key(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-            items.add(k)
-            all_group.add(k)
-        elif room.type == "treasure":
-            upg = random.choice([SilverSword, DefenseRing])(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-            items.add(upg)
-            all_group.add(upg)
-        elif room.type == "master_key_room":
-            mk = MasterKey(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-            items.add(mk)
-            all_group.add(mk)
+        # 1. Common Combat Rooms
+        if room.type == "common":
+            if not room.enemies_cleared:
+                spawn_minions()
+        
+        # 2. Boss Room
+        elif room.type == "boss":
+            if not room.enemies_cleared:
+                b = Boss(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+                enemies.add(b)
+                all_group.add(b)
+
+        # 3. Items and Special Rooms
+        else:
+            if room.items_collected:
+                # Already picked, leave empty
+                pass
+            else:
+                # Check for item spawn or replacement with combat
+                item_class = None
+                spawn_pos = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+                should_spawn = False
+
+                if room.type == "start":
+                    if not player.has_sword:
+                        item_class = SilverSword
+                        spawn_pos = (SCREEN_WIDTH // 2, TILE_SIZE * 5)
+                        should_spawn = True
+                elif room.type == "puzzle":
+                    if player.keys == 0:
+                        item_class = Key
+                        should_spawn = True
+                elif room.type == "treasure":
+                    if not player.has_defense_ring:
+                        item_class = DefenseRing
+                        should_spawn = True
+                elif room.type == "master_key_room":
+                    if not player.has_master_key:
+                        item_class = MasterKey
+                        should_spawn = True
+                elif room.type == "victory":
+                    item_class = VictoryItem
+                    should_spawn = True
+
+                if should_spawn:
+                    it = item_class(*spawn_pos)
+                    items.add(it)
+                    all_group.add(it)
+                else:
+                    # Item is a duplicate or already held -> Replace with Combat
+                    if not room.enemies_cleared:
+                        spawn_minions()
+
+        room.setup_walls()
 
     setup_room(dungeon.get_current_room(), (enemies, items, projectiles), all_sprites)
 
@@ -99,6 +146,7 @@ async def main():
                 player.keys = 0
                 player.has_master_key = False
                 player.has_silver_sword = False
+                player.has_sword = False
                 player.damage = 2
                 player.defense = 0
                 player.rect.topleft = (SCREEN_WIDTH // 2, TILE_SIZE * 2)
@@ -111,27 +159,74 @@ async def main():
         if game_state == STATE_PLAYING:
             current_room = dungeon.get_current_room()
             
-            # Room Transitions
+            # Room Transitions & Locking
             transitioned = False
             dir_to_move = None
-            if player.rect.left < 5: dir_to_move = "left"
-            elif player.rect.right > SCREEN_WIDTH - 5: dir_to_move = "right"
-            elif player.rect.top < 5: dir_to_move = "up"
-            elif player.rect.bottom > SCREEN_HEIGHT - 5: dir_to_move = "down"
+            
+            # Check for door collision/intent (increased range to trigger while bumping into walls)
+            if player.rect.left <= TILE_SIZE + 5: dir_to_move = "left"
+            elif player.rect.right >= SCREEN_WIDTH - TILE_SIZE - 5: dir_to_move = "right"
+            elif player.rect.top <= TILE_SIZE + 5: dir_to_move = "up"
+            elif player.rect.bottom >= SCREEN_HEIGHT - TILE_SIZE - 5: dir_to_move = "down"
 
             if dir_to_move and current_room.connections[dir_to_move]:
                 lock = current_room.locked_doors[dir_to_move]
-                can_pass = True
-                if lock == "master" and not player.has_master_key:
-                    can_pass = False
                 
+                # Door Unlocking Logic (Check if player is close enough to use key)
+                if lock:
+                    can_unlock = False
+                    if lock == "key" and player.keys > 0:
+                        player.keys -= 1
+                        can_unlock = True
+                    elif lock == "master" and player.has_master_key:
+                        can_unlock = True
+                    
+                    if can_unlock:
+                        current_room.locked_doors[dir_to_move] = False
+                        nx, ny = current_room.grid_pos
+                        if dir_to_move == "up": ny -= 1
+                        elif dir_to_move == "down": ny += 1
+                        elif dir_to_move == "left": nx -= 1
+                        elif dir_to_move == "right": nx += 1
+                        opp = {"up":"down", "down":"up", "left":"right", "right":"left"}[dir_to_move]
+                        dungeon.rooms[(nx, ny)].locked_doors[opp] = False
+                        current_room.setup_walls()
+                        lock = False # Door is now open
+                        # Break out of intent check to prevent jumpy movement
+                        dir_to_move = None 
+
+            # Arena Activation Logic: Only lock doors once player is inside the room
+            if not current_room.arena_activated and len(enemies) > 0:
+                # Check if player is clearly inside the room (not near any door)
+                margin = TILE_SIZE * 2
+                if margin < player.rect.centerx < SCREEN_WIDTH - margin and \
+                   margin < player.rect.centery < SCREEN_HEIGHT - margin:
+                    current_room.arena_activated = True
+                    for d in current_room.connections:
+                        if current_room.connections[d] and not current_room.locked_doors[d]:
+                            current_room.locked_doors[d] = "enemy"
+                    current_room.setup_walls()
+
+                # Check if we can actually transition (at the edge and enemies cleared)
+            at_edge = False
+            if player.rect.left <= TILE_SIZE + 2: at_edge = True
+            elif player.rect.right >= SCREEN_WIDTH - TILE_SIZE - 2: at_edge = True
+            elif player.rect.top <= TILE_SIZE + 2: at_edge = True
+            elif player.rect.bottom >= SCREEN_HEIGHT - TILE_SIZE - 2: at_edge = True
+            
+            if at_edge and not lock:
+                can_pass = True
+                # Enemy clear logic
+                if len(enemies) > 0 and current_room.type != "start":
+                    can_pass = False
+
                 if can_pass:
-                    if dungeon.move(dir_to_move):
-                        if dir_to_move == "left": player.rect.right = SCREEN_WIDTH - 15
-                        elif dir_to_move == "right": player.rect.left = 15
-                        elif dir_to_move == "up": player.rect.bottom = SCREEN_HEIGHT - 15
-                        elif dir_to_move == "down": player.rect.top = 15
-                        transitioned = True
+                        if dungeon.move(dir_to_move):
+                            if dir_to_move == "left": player.rect.right = SCREEN_WIDTH - TILE_SIZE - 20
+                            elif dir_to_move == "right": player.rect.left = TILE_SIZE + 20
+                            elif dir_to_move == "up": player.rect.bottom = SCREEN_HEIGHT - TILE_SIZE - 20
+                            elif dir_to_move == "down": player.rect.top = TILE_SIZE + 20
+                            transitioned = True
 
             if transitioned:
                 setup_room(dungeon.get_current_room(), (enemies, items, projectiles), all_sprites)
@@ -143,8 +238,6 @@ async def main():
             for e in enemies:
                 if isinstance(e, Boss):
                     e.update_boss(player.rect, current_room.walls, projectiles, all_sprites)
-                    if e.hp <= 0:
-                        game_state = STATE_WIN
                 else:
                     e.chase_player(player.rect, current_room.walls)
             
@@ -156,8 +249,15 @@ async def main():
                 hit_enemies = pygame.sprite.spritecollide(sword, enemies, False)
                 for enemy in hit_enemies:
                     enemy.hp -= player.damage
-                    if enemy.hp <= 0 and not isinstance(enemy, Boss):
+                    if enemy.hp <= 0:
                         enemy.kill()
+                        # If all enemies killed (including boss), unlock "enemy" doors and MARK AS CLEARED
+                        if len(enemies) == 0:
+                            current_room.enemies_cleared = True
+                            for d in current_room.locked_doors:
+                                if current_room.locked_doors[d] == "enemy":
+                                    current_room.locked_doors[d] = False
+                            current_room.setup_walls()
             
             # Collision: Projectile -> Player
             hit_projectiles = pygame.sprite.spritecollide(player, projectiles, True)
@@ -166,17 +266,22 @@ async def main():
 
             # Collision: Item Collection
             picked_items = pygame.sprite.spritecollide(player, items, True)
-            for item in picked_items:
-                if item.item_type == "key":
-                    player.keys += 1
-                elif item.item_type == "master_key":
-                    player.has_master_key = True
-                elif item.item_type == "silver_sword":
-                    player.has_silver_sword = True
-                    player.damage = 4
-                elif item.item_type == "defense_ring":
-                    player.has_defense_ring = True
-                    player.defense = 0.5 
+            if picked_items:
+                current_room.items_collected = True
+                for item in picked_items:
+                    if item.item_type == "key":
+                        player.keys += 1
+                    elif item.item_type == "master_key":
+                        player.has_master_key = True
+                    elif item.item_type == "silver_sword":
+                        player.has_silver_sword = True
+                        player.has_sword = True
+                        player.damage = 4
+                    elif item.item_type == "defense_ring":
+                        player.has_defense_ring = True
+                        player.defense = 0.5 # 50% damage reduction
+                    elif item.item_type == "victory_item":
+                        game_state = STATE_WIN
 
             # Collision: Enemy -> Player
             hit_by_enemies = pygame.sprite.spritecollide(player, enemies, False)
@@ -191,38 +296,35 @@ async def main():
         screen.fill((20, 20, 30))
         dungeon.get_current_room().draw(screen)
         all_sprites.draw(screen)
-        draw_hud(screen, player, enemies)
+        draw_hud(screen, player, enemies, font_hud, font_boss, font_small)
 
         if game_state == STATE_GAMEOVER:
-            draw_overlay(screen, "GAME OVER", (255, 50, 50))
+            draw_overlay(screen, "GAME OVER", (255, 50, 50), font_overlay, font_sub_overlay)
         elif game_state == STATE_WIN:
-            draw_overlay(screen, "YOU WIN! DUNGEON CLEARED", (50, 255, 50))
+            draw_overlay(screen, "YOU WIN! DUNGEON CLEARED", (50, 255, 50), font_overlay, font_sub_overlay)
 
         pygame.display.flip()
-        await asyncio.sleep(0) # Let the browser breathe (required for Pyodide)
+        await asyncio.sleep(0) 
         clock.tick(60)
 
-    pygame.quit()
-    sys.exit()
+    # Main loop ends
 
-def draw_overlay(screen, text, color):
+def draw_overlay(screen, text, color, font, sub_font):
     # Darker background for overlay
     s = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
     s.set_alpha(128)
     s.fill((0, 0, 0))
     screen.blit(s, (0,0))
     
-    font = pygame.font.SysFont("Arial", 40, bold=True)
     msg = font.render(text, True, color)
     rect = msg.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
     screen.blit(msg, rect)
     
-    sub_font = pygame.font.SysFont("Arial", 20)
     sub_msg = sub_font.render("Press SPACE to Restart", True, (255, 255, 255))
     sub_rect = sub_msg.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
     screen.blit(sub_msg, sub_rect)
 
-def draw_hud(screen, player, enemies):
+def draw_hud(screen, player, enemies, font, font_boss, font_small):
     # Hearts
     heart_color = (255, 0, 0)
     for i in range(3):
@@ -240,12 +342,15 @@ def draw_hud(screen, player, enemies):
             pygame.draw.rect(screen, (50, 50, 50), boss_bar_rect)
             fill_w = 400 * (e.hp / e.max_hp)
             pygame.draw.rect(screen, (200, 0, 200), (200, 10, fill_w, 20))
-            font = pygame.font.SysFont("Arial", 16)
-            text = font.render("THE GUARDIAN", True, (255, 255, 255))
-            screen.blit(text, (200, 35))
+            text_boss = font_boss.render("THE GUARDIAN", True, (255, 255, 255))
+            screen.blit(text_boss, (200, 35))
+            
+    # Key Alert
+    if len(enemies) > 0 and len(enemies) < 10: # Only if clearable
+        alert = font_small.render("ENEMIES REMAINING!", True, (255, 100, 100))
+        screen.blit(alert, (SCREEN_WIDTH // 2 - 70, 50))
             
     # Keys & Info
-    font = pygame.font.SysFont("Arial", 20)
     keys_text = font.render(f"Keys: {player.keys}", True, (255, 255, 255))
     screen.blit(keys_text, (10, 50))
     
@@ -261,5 +366,20 @@ def draw_hud(screen, player, enemies):
         dr_text = font.render("DEFENSE RING (RESISTANT)", True, (100, 255, 100))
         screen.blit(dr_text, (10, 140))
 
+def run_game():
+    # Detect if we are in a web browser
+    if sys.platform == "emscripten":
+        asyncio.run(main())
+    else:
+        # Standard local launch
+        try:
+            asyncio.run(main())
+        except KeyboardInterrupt:
+            pass
+        except Exception as e:
+            print(f"Error: {e}")
+        finally:
+            pygame.quit()
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    run_game()

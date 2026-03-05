@@ -1,13 +1,13 @@
 import pygame
 
 class Entity(pygame.sprite.Sprite):
-    def __init__(self, x, y, width, height, color):
+    def __init__(self, x: float, y: float, width: int, height: int, color: tuple):
         super().__init__()
         self.image = pygame.Surface((width, height))
         self.image.fill(color)
         self.rect = self.image.get_rect(topleft=(x, y))
         self.velocity = pygame.Vector2(0, 0)
-        self.speed = 3
+        self.speed: float = 3.0
         self.max_hp = 6
         self.hp = 6
 
@@ -137,6 +137,14 @@ class DefenseRing(Item):
     def __init__(self, x, y):
         super().__init__(x, y, "defense_ring", (50, 255, 50))
 
+class VictoryItem(Item):
+    def __init__(self, x, y):
+        super().__init__(x, y, "victory_item", (0, 255, 255)) # Cyan Triangle/Diamond
+        # Change shape to something special
+        self.image = pygame.Surface((30, 30), pygame.SRCALPHA)
+        pygame.draw.polygon(self.image, (0, 255, 255), [(15, 0), (30, 15), (15, 30), (0, 15)])
+        self.rect = self.image.get_rect(center=(x, y))
+
 class Player(Entity):
     def __init__(self, x, y):
         # Initial color: Blue (Player)
@@ -145,6 +153,7 @@ class Player(Entity):
         self.max_hp = 6
         self.keys = 0
         self.has_silver_sword = False
+        self.has_sword = False
         self.has_defense_ring = False
         self.has_master_key = False
         self.direction = "down"
@@ -158,7 +167,7 @@ class Player(Entity):
         self.velocity.y = 0
 
         # Attack (Space bar)
-        if keys[pygame.K_SPACE] and self.attack_cooldown <= 0:
+        if keys[pygame.K_SPACE] and self.has_sword and self.attack_cooldown <= 0:
             new_sword = Sword(self.rect.x, self.rect.y, self.direction)
             sword_group.add(new_sword)
             self.attack_cooldown = 20 # Cooldown frames

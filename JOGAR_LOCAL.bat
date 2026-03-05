@@ -1,6 +1,7 @@
 @echo off
-echo [INFO] Instalando Pygame...
-pip install pygame --upgrade
 echo [INFO] Iniciando jogo local...
 python main.py
-pause
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERRO] O jogo fechou com erro ou o Python não está instalado.
+    pause
+)
