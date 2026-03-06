@@ -20,20 +20,21 @@ class Room:
         self.visited = False
         self.enemies_cleared = False
         self.arena_activated = False
+        self.hazards = [] # Store hazard definitions [(type, x, y, extra_data)]
         # Special rooms should ALWAYS be empty
         special_types = ["start", "boss", "treasure", "puzzle", "master_key_room", "victory"]
         if self.type in special_types:
-            self.layout_type = "empty"
+            self.layout_type = "special"
         else:
-            self.layout_type = random.choice(["empty", "pillars", "cross", "scattered"])
+            self.layout_type = random.choice(["empty", "pillars", "bars", "grid", "square", "L_shapes", "plus", "single_bar"])
 
     def setup_walls(self):
         self.walls.empty()
         
-        # Ensure special rooms ALWAYS stay empty even if type changed after init
+        # Ensure special rooms ALWAYS stay 'special' even if type changed after init
         special_types = ["start", "boss", "treasure", "puzzle", "master_key_room", "victory"]
         if self.type in special_types:
-            self.layout_type = "empty"
+            self.layout_type = "special"
 
         # Create a border of walls with gaps for doors
         for x in range(ROOM_WIDTH_TILES):
@@ -66,26 +67,62 @@ class Room:
             else:
                 self.add_wall((ROOM_WIDTH_TILES - 1) * TILE_SIZE, y * TILE_SIZE)
         
-        # Internal Layouts - Only for Common Rooms
-        special_types = ["start", "boss", "treasure", "puzzle", "master_key_room", "victory"]
-        if self.type in special_types:
-            return
+        # Internal Layouts applied to all rooms according to their layout_type
+        # (Special rooms are now set to 'pillars' instead of returning early)
 
         if self.layout_type == "pillars":
-            # 4 Pillars
+            # Image 3: 4 Pillars
             for px, py in [(4, 3), (11, 3), (4, 7), (11, 7)]:
                 self.add_wall(px * TILE_SIZE, py * TILE_SIZE)
-        elif self.layout_type == "cross":
-            for i in range(3, 8):
-                if i != 5: # Leave center clear usually or just a cross
-                    self.add_wall(8 * TILE_SIZE, i * TILE_SIZE)
-                    self.add_wall(i * TILE_SIZE + 4*TILE_SIZE, 5 * TILE_SIZE)
-        elif self.layout_type == "scattered":
-            for _ in range(5):
-                rx = random.randint(2, ROOM_WIDTH_TILES - 3)
-                ry = random.randint(2, ROOM_HEIGHT_TILES - 3)
-                if not (rx in [7, 8] or ry == 5): # Don't block doors
-                    self.add_wall(rx * TILE_SIZE, ry * TILE_SIZE)
+        elif self.layout_type == "bars":
+            # Image 1: Two horizontal bars
+            for x in range(9, 13): # Top-right bar
+                self.add_wall(x * TILE_SIZE, 3 * TILE_SIZE)
+            for x in range(3, 7): # Bottom-left bar
+                self.add_wall(x * TILE_SIZE, 7 * TILE_SIZE)
+        elif self.layout_type == "grid":
+            # Image 7: 4x3 Grid (Two pairs of columns, adjusted)
+            for px in [3, 6, 9, 12]:
+                for py in [2, 5, 8]:
+                    self.add_wall(px * TILE_SIZE, py * TILE_SIZE)
+        elif self.layout_type == "square":
+            # Image 4: Large center square
+            for x in range(6, 10):
+                for y in range(4, 7):
+                    self.add_wall(x * TILE_SIZE, y * TILE_SIZE)
+        elif self.layout_type == "L_shapes":
+            # Image 5: L-shapes in corners
+            # Top-left
+            self.add_wall(2 * TILE_SIZE, 2 * TILE_SIZE)
+            self.add_wall(3 * TILE_SIZE, 2 * TILE_SIZE)
+            self.add_wall(2 * TILE_SIZE, 3 * TILE_SIZE)
+            # Top-right
+            self.add_wall(13 * TILE_SIZE, 2 * TILE_SIZE)
+            self.add_wall(12 * TILE_SIZE, 2 * TILE_SIZE)
+            self.add_wall(13 * TILE_SIZE, 3 * TILE_SIZE)
+            # Bottom-left
+            self.add_wall(2 * TILE_SIZE, 8 * TILE_SIZE)
+            self.add_wall(3 * TILE_SIZE, 8 * TILE_SIZE)
+            self.add_wall(2 * TILE_SIZE, 7 * TILE_SIZE)
+            # Bottom-right
+            self.add_wall(13 * TILE_SIZE, 8 * TILE_SIZE)
+            self.add_wall(12 * TILE_SIZE, 8 * TILE_SIZE)
+            self.add_wall(13 * TILE_SIZE, 7 * TILE_SIZE)
+        elif self.layout_type == "plus":
+            # Image 6: Plus sign in center
+            for x in range(5, 11): # Horizontal bar
+                self.add_wall(x * TILE_SIZE, 5 * TILE_SIZE)
+            for y in [3, 4, 6, 7]: # Vertical bars (skipping center row)
+                self.add_wall(7 * TILE_SIZE, y * TILE_SIZE)
+                self.add_wall(8 * TILE_SIZE, y * TILE_SIZE)
+        elif self.layout_type == "special":
+            # Corner pillars with space to walk behind (1 tile gap from walls)
+            for px, py in [(2, 2), (13, 2), (2, 8), (13, 8)]:
+                self.add_wall(px * TILE_SIZE, py * TILE_SIZE)
+        elif self.layout_type == "single_bar":
+            # Image 8: Single horizontal bar in center
+            for x in range(5, 11):
+                self.add_wall(x * TILE_SIZE, 5 * TILE_SIZE)
 
     def add_wall(self, x, y, is_door=False, lock=False):
         wall = pygame.sprite.Sprite()
@@ -107,6 +144,7 @@ class Room:
             elif self.type == "puzzle": color = (60, 120, 60)
             elif self.type == "start": color = (50, 50, 80)
             elif self.type == "victory": color = (0, 100, 100) # Deep cyan for throne room
+            elif self.type == "master_key_room": color = (255, 140, 0) # Orange for Master Key room
         
         wall.image.fill(color)
         if is_door:
@@ -307,10 +345,14 @@ class Dungeon:
         for room in self.rooms.values():
             room.setup_walls()
 
-    def get_current_room(self):
+    def get_current_room(self) -> Room:
         return self.rooms[self.current_pos]
 
     def move(self, direction):
+        # Check if there is even a door/connection in that direction first!
+        if not self.rooms[self.current_pos].connections.get(direction):
+            return False
+            
         lx, ly = self.current_pos
         if direction == "up": ly -= 1
         elif direction == "down": ly += 1
