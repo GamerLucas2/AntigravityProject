@@ -117,8 +117,10 @@ class Room:
                 self.add_wall(8 * TILE_SIZE, y * TILE_SIZE)
         elif self.layout_type == "special":
             # Corner pillars with space to walk behind (1 tile gap from walls)
-            for px, py in [(2, 2), (13, 2), (2, 8), (13, 8)]:
-                self.add_wall(px * TILE_SIZE, py * TILE_SIZE)
+            # Puzzle rooms handle these as interactive objects in main.py
+            if self.type != "puzzle":
+                for px, py in [(2, 2), (13, 2), (2, 8), (13, 8)]:
+                    self.add_wall(px * TILE_SIZE, py * TILE_SIZE)
         elif self.layout_type == "single_bar":
             # Image 8: Single horizontal bar in center
             for x in range(5, 11):
@@ -144,7 +146,7 @@ class Room:
             elif self.type == "puzzle": color = (60, 120, 60)
             elif self.type == "start": color = (50, 50, 80)
             elif self.type == "victory": color = (0, 100, 100) # Deep cyan for throne room
-            elif self.type == "master_key_room": color = (255, 140, 0) # Orange for Master Key room
+            elif self.type == "master_key_room": color = (200, 0, 200) # Purple for Master Key room
         
         wall.image.fill(color)
         if is_door:

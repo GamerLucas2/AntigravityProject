@@ -27,6 +27,7 @@ class Sword(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.direction = direction
         self.timer = 10 # Frames the sword lasts
+        self.hit_enemies = set() # Avoid hitting same enemy multiple times per attack
         self.set_position(x, y)
 
     def set_position(self, px, py):
@@ -298,6 +299,71 @@ class VictoryItem(Item):
 class WoodenSword(Item):
     def __init__(self, x, y):
         super().__init__(x, y, "wooden_sword", (139, 69, 19)) # Brown
+
+class PushBlock(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface((38, 38))
+        self.image.fill((140, 140, 140))
+        pygame.draw.rect(self.image, (60, 60, 60), (0, 0, 38, 38), 3)
+        self.rect = self.image.get_rect(topleft=(x+1, y+1))
+        self.push_timer = 0
+        self.is_moving = False
+        self.target_pos = pygame.Vector2(self.rect.topleft)
+        self.direction = pygame.Vector2(0, 0)
+
+    def update(self, walls, blocks):
+        if self.is_moving:
+            move_speed = 2
+            move_vec = self.direction * move_speed
+            self.rect.x += move_vec.x
+            self.rect.y += move_vec.y
+            
+            # Check if reached target
+            dist = pygame.Vector2(self.rect.topleft).distance_to(self.target_pos)
+            if dist < move_speed:
+                self.rect.topleft = (int(self.target_pos.x), int(self.target_pos.y))
+                self.is_moving = False
+                self.push_timer = 0
+
+    def start_push(self, direction_vec, walls, other_blocks):
+        if self.is_moving: return False
+        
+        # Test if the target position is clear
+        test_rect = self.rect.copy()
+        test_rect.x += direction_vec.x * 40
+        test_rect.y += direction_vec.y * 40
+        
+        # Check walls
+        for wall in walls:
+            if test_rect.colliderect(wall.rect): return False
+        
+        # Check other blocks
+        for block in other_blocks:
+            if block != self and test_rect.colliderect(block.rect): return False
+            
+        self.is_moving = True
+        self.direction = direction_vec
+        self.target_pos = pygame.Vector2(self.rect.x + direction_vec.x * 40, 
+                                        self.rect.y + direction_vec.y * 40)
+        return True
+
+class PuzzleSpot(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface((40, 40), pygame.SRCALPHA)
+        self.rect = self.image.get_rect(topleft=(x, y))
+        self.is_filled = False
+        self.update_image()
+
+    def update_image(self):
+        self.image.fill((0, 0, 0, 0)) # Clear background
+        if self.is_filled:
+            self.image.fill((50, 255, 50)) # Green if filled
+            pygame.draw.rect(self.image, (0, 0, 0), (0, 0, 40, 40), 2)
+        else:
+            # Just a subtle outline for the empty spot
+            pygame.draw.rect(self.image, (100, 100, 100), (0, 0, 40, 40), 2)
 
 class Player(Entity):
     def __init__(self, x, y):

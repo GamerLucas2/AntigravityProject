@@ -9,7 +9,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-from entities import Player, Enemy, Sword, Key, MasterKey, SilverSword, DefenseRing, Boss, Projectile, VictoryItem, ShooterEnemy, WallWalkerEnemy, MovingSpikes, WoodenSword
+from entities import Player, Enemy, Sword, Key, MasterKey, SilverSword, DefenseRing, Boss, Projectile, VictoryItem, ShooterEnemy, WallWalkerEnemy, MovingSpikes, WoodenSword, PushBlock, PuzzleSpot
 from map_gen import Dungeon, SCREEN_WIDTH, SCREEN_HEIGHT, TILE_SIZE
 
 async def main():
@@ -33,6 +33,8 @@ async def main():
     items = pygame.sprite.Group()
     projectiles = pygame.sprite.Group()
     hazards = pygame.sprite.Group()
+    puzzle_blocks = pygame.sprite.Group()
+    puzzle_spots = pygame.sprite.Group()
     
     # Game State
     STATE_PLAYING = 0
@@ -49,16 +51,22 @@ async def main():
     font_sub_overlay = pygame.font.SysFont("Arial", 20)
 
     def setup_room(room, groups, all_group):
-        enemies, items, projectiles, hazards = groups
+        enemies, items, projectiles, hazards, puzzle_blocks, puzzle_spots = groups
         enemies.empty()
         items.empty()
         projectiles.empty()
         hazards.empty()
+        puzzle_blocks.empty()
+        puzzle_spots.empty()
         
         # Remove old entities (enemies, items, projectiles, etc.)
         for s in list(all_group):
             if s != player:
                 s.kill()
+        
+        # Room persistence attributes
+        if not hasattr(room, 'puzzle_solved'): room.puzzle_solved = False
+        if not hasattr(room, 'puzzle_data'): room.puzzle_data = {"blocks": [], "spots": []}
         
         room.arena_activated = False
         
@@ -172,9 +180,40 @@ async def main():
                         spawn_pos = (SCREEN_WIDTH // 2, TILE_SIZE * 5)
                         should_spawn = True
                 elif room.type == "puzzle":
-                    if player.keys == 0:
-                        item_class = Key
-                        should_spawn = True
+                    # Check if puzzle is already solved
+                    if not room.puzzle_solved:
+                        # Setup/Restore Puzzle
+                        if not room.puzzle_data["spots"]:
+                            # Image reference: 3 fixed spots (green/red) and 1 movable block
+                            # Coordinates: (4, 3), (11, 3), (4, 7), (11, 7) are standard pillars
+                            room.puzzle_data["spots"] = [(4, 3), (4, 7), (11, 7)]
+                            room.puzzle_data["blocks"] = [(11, 3)] # The one you push to (11, 3)? 
+                            # Image shows 3 green spots and 1 red spot. 
+                            # Let's place 3 spots and the player has to push blocks onto them.
+                            # Image: 
+                            # Top-Left: Green (Spot filled)
+                            # Bottom-Left: Green (Spot filled)
+                            # Bottom-Right: Green (Spot filled)
+                            # Top-Right: Red (Spot empty)
+                            spots_coords = [(4, 3), (4, 7), (11, 7), (11, 3)]
+                            room.puzzle_data["spots"] = spots_coords
+                            # Blocks initially elsewhere so they must be pushed
+                            room.puzzle_data["blocks"] = [(4, 3), (4, 7), (11, 7), (7, 5)] # 3 already on spots, 1 in center to be pushed to Top-Right
+                        
+                        for sx, sy in room.puzzle_data["spots"]:
+                            spot = PuzzleSpot(sx * TILE_SIZE, sy * TILE_SIZE)
+                            puzzle_spots.add(spot)
+                            all_group.add(spot)
+                        
+                        for bx, by in room.puzzle_data["blocks"]:
+                            block = PushBlock(bx * TILE_SIZE, by * TILE_SIZE)
+                            puzzle_blocks.add(block)
+                            all_group.add(block)
+                    else:
+                        # Puzzle solved, just spawn key if not collected
+                        if player.keys == 0:
+                            item_class = Key
+                            should_spawn = True
                 elif room.type == "treasure":
                     if not hasattr(room, 'item_choice'):
                         room.item_choice = random.choice(["sword", "ring"])
@@ -205,13 +244,13 @@ async def main():
                     items.add(it)
                     all_group.add(it)
                 else:
-                    # Item is already taken or duplicate -> Combat encounter
-                    if not room.enemies_cleared and room.type != "victory" and room.type != "start":
+                    # Item is already taken or duplicate (or puzzle not solved yet) -> Combat encounter
+                    if not room.enemies_cleared and room.type not in ["victory", "start", "puzzle"]:
                         spawn_minions()
 
         room.setup_walls()
 
-    setup_room(dungeon.get_current_room(), (enemies, items, projectiles, hazards), all_sprites)
+    setup_room(dungeon.get_current_room(), (enemies, items, projectiles, hazards, puzzle_blocks, puzzle_spots), all_sprites)
 
     running = True
     while running:
@@ -239,7 +278,7 @@ async def main():
                 player.defense = 0
                 player.rect.topleft = (SCREEN_WIDTH // 2, TILE_SIZE * 2)
                 dungeon = Dungeon(size=3)
-                setup_room(dungeon.get_current_room(), (enemies, items, projectiles, hazards), all_sprites)
+                setup_room(dungeon.get_current_room(), (enemies, items, projectiles, hazards, puzzle_blocks, puzzle_spots), all_sprites)
                 game_state = STATE_PLAYING
                 continue
         elif game_state == STATE_GAMEOVER:
@@ -257,7 +296,7 @@ async def main():
                 player.defense = 0
                 player.rect.topleft = (SCREEN_WIDTH // 2, TILE_SIZE * 2)
                 dungeon = Dungeon(size=3)
-                setup_room(dungeon.get_current_room(), (enemies, items, projectiles, hazards), all_sprites)
+                setup_room(dungeon.get_current_room(), (enemies, items, projectiles, hazards, puzzle_blocks, puzzle_spots), all_sprites)
                 game_state = STATE_PLAYING
                 continue
         elif game_state == STATE_WIN:
@@ -275,7 +314,7 @@ async def main():
                 player.defense = 0
                 player.rect.topleft = (SCREEN_WIDTH // 2, TILE_SIZE * 2)
                 dungeon = Dungeon(size=3)
-                setup_room(dungeon.get_current_room(), (enemies, items, projectiles, hazards), all_sprites)
+                setup_room(dungeon.get_current_room(), (enemies, items, projectiles, hazards, puzzle_blocks, puzzle_spots), all_sprites)
                 game_state = STATE_PLAYING
                 continue
             elif keys[pygame.K_ESCAPE]:
@@ -362,12 +401,70 @@ async def main():
                             transitioned = True
 
             if transitioned:
-                setup_room(dungeon.get_current_room(), (enemies, items, projectiles, hazards), all_sprites)
+                setup_room(dungeon.get_current_room(), (enemies, items, projectiles, hazards, puzzle_blocks, puzzle_spots), all_sprites)
                 current_room = dungeon.get_current_room()
 
             # Update sprites
             swords.update()
             projectiles.update()
+            
+            # Puzzle Blocks Update & Pushing
+            for block in puzzle_blocks:
+                block.update(current_room.walls, puzzle_blocks)
+                
+                # Check for push from player
+                if not block.is_moving and player.rect.colliderect(block.rect.inflate(4, 4)):
+                    # Determine push direction
+                    p_center = pygame.Vector2(player.rect.center)
+                    b_center = pygame.Vector2(block.rect.center)
+                    diff = b_center - p_center
+                    
+                    push_dir = pygame.Vector2(0, 0)
+                    if abs(diff.x) > abs(diff.y):
+                        push_dir.x = 1 if diff.x > 0 else -1
+                    else:
+                        push_dir.y = 1 if diff.y > 0 else -1
+                        
+                    # Only push if player is moving in that direction
+                    keys = pygame.key.get_pressed() # Get keys here for pushing logic
+                    if (push_dir.x > 0 and (keys[pygame.K_RIGHT] or keys[pygame.K_d])) or \
+                       (push_dir.x < 0 and (keys[pygame.K_LEFT] or keys[pygame.K_a])) or \
+                       (push_dir.y > 0 and (keys[pygame.K_DOWN] or keys[pygame.K_s])) or \
+                       (push_dir.y < 0 and (keys[pygame.K_UP] or keys[pygame.K_w])):
+                        
+                        block.push_timer += 1
+                        if block.push_timer > 15: # Frames needed to start pushing
+                            block.start_push(push_dir, current_room.walls, puzzle_blocks)
+                else:
+                    # Reset timer if not colliding or not pushing
+                    if player.rect.colliderect(block.rect.inflate(4, 4)):
+                         pass # Keep timer if just touching? Actually better to reset if button not held
+                    else:
+                        block.push_timer = 0
+
+            # Puzzle Completion Check
+            if not current_room.puzzle_solved and len(puzzle_spots) > 0:
+                all_filled = True
+                for spot in puzzle_spots:
+                    filled = False
+                    for block in puzzle_blocks:
+                        if spot.rect.collidepoint(block.rect.center):
+                            filled = True
+                            break
+                    spot.is_filled = filled
+                    spot.update_image()
+                    if not filled: all_filled = False # Corrected logic
+                
+                # Correct logic for all_filled
+                all_filled = all(spot.is_filled for spot in puzzle_spots)
+                
+                if all_filled:
+                    current_room.puzzle_solved = True
+                    # Spawn the key!
+                    key = Key(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+                    items.add(key)
+                    all_sprites.add(key)
+
             for e in enemies:
                 if isinstance(e, Boss):
                     e.update_boss(player.rect, current_room.walls, projectiles, all_sprites)
@@ -383,18 +480,20 @@ async def main():
                 elif isinstance(s, WallWalkerEnemy):
                     s.update(player.rect, current_room.walls)
             
-            # Physical collision group (Walls + Hazards)
-            solid_colliders = pygame.sprite.Group(list(current_room.walls) + list(hazards))
+            # Physical collision group (Walls + Hazards + Blocks)
+            solid_colliders = pygame.sprite.Group(list(current_room.walls) + list(hazards) + list(puzzle_blocks))
             player.update(solid_colliders)
 
             # Collision: Sword -> Enemy
             for sword in swords:
                 hit_enemies = pygame.sprite.spritecollide(sword, enemies, False)
                 for enemy in hit_enemies:
-                    enemy.hp -= player.damage
-                    if enemy.hp <= 0:
-                        enemy.kill()
-                        # If all enemies killed (including boss), unlock "enemy" doors and MARK AS CLEARED
+                    if enemy not in sword.hit_enemies:
+                        sword.hit_enemies.add(enemy)
+                        enemy.hp -= player.damage
+                        if enemy.hp <= 0:
+                            enemy.kill()
+                            # If all enemies killed (including boss), unlock "enemy" doors and MARK AS CLEARED
                         if len(enemies) == 0:
                             current_room.enemies_cleared = True
                             for d in current_room.locked_doors:
